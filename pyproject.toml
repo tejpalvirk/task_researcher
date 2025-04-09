@@ -1,0 +1,34 @@
+[tool.poetry]
+name = "task-researcher"
+version = "0.1.0"
+description = "Python Task Research System using AI for Task Breakdown and STORM-based Research"
+authors = ["Tejpal Virk"]
+readme = "README.md"
+license = "MIT"
+packages = [{include = "main"}]
+
+[tool.poetry.dependencies]
+python = "^3.10"
+typer = {extras = ["all"], version = "^0.12.3"}
+instructor = "^1.3.3"
+pydantic = "^2.7.4"
+python-dotenv = "^1.0.1"
+rich = "^13.7.1"
+litellm = "^1.39.1"
+anthropic = "^0.29.0"
+google-generativeai = "^0.7.1"
+knowledge-storm = "^1.1.0"
+requests = "^2.31.0"
+aiohttp = "^3.9.5" 
+mcp = {extras = ["cli"], version = "^1.5.0"}
+
+[tool.poetry.group.dev.dependencies]
+pytest = "^8.2.2"
+ruff = "^0.4.10"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
+
+[tool.poetry.scripts]
+task-researcher = "main.cli:app"

@@ -1,0 +1,28 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+env/
+venv/
+.venv/
+*.egg-info/
+dist/
+build/
+*.log
+*.sqlite3
+*.db
+
+# Environment variables
+.env
+
+# Task Researcher specific
+tasks/*.txt # Ignore generated task files
+scripts/task-complexity-report.json # Default report
+scripts/storm_research_output/ # Ignore STORM generated files
+*.md # Ignore generated markdown files unless explicitly committed
+
+# IDE/Editor specific
+.idea/
+.vscode/
