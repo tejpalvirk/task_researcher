@@ -182,40 +182,56 @@ def fix_dependencies(tasks_data: TasksData) -> Tuple[bool, Dict[str, int]]:
              if cycle_edges:
                  for cycle_from_str, cycle_to_str in cycle_edges:
                      log.warning(f"Breaking cycle: Removing dependency {cycle_from_str} -> {cycle_to_str}")
-                     # Find the task/subtask object `cycle_from_str`
-                     node_obj = find_task_by_id(tasks_data.tasks, cycle_from_str)
-                     if node_obj and node_obj.get('dependencies'):
+                     # Find the task/subtask object `cycle_from_str` (using dict version for now)
+                     node_obj_dict = find_task_by_id(tasks_data.model_dump()['tasks'], cycle_from_str) # Find in dict representation
+
+                     # Find the corresponding object in the Pydantic model list to modify it
+                     node_obj_model = None
+                     if '.' in cycle_from_str:
+                          parent_id, sub_id = map(int, cycle_from_str.split('.'))
+                          parent_task_model = next((t for t in tasks_data.tasks if t.id == parent_id), None)
+                          if parent_task_model and parent_task_model.subtasks:
+                               node_obj_model = next((st for st in parent_task_model.subtasks if st.id == sub_id), None)
+                     else:
+                          node_obj_model = next((t for t in tasks_data.tasks if t.id == int(cycle_from_str)), None)
+
+
+                     if node_obj_model and node_obj_model.dependencies:
                          # Determine the original type of the dependency to remove
-                         dep_to_remove_original_type = None
+                         dep_to_remove_original_type: Union[int, str]
                          try: # Is 'cycle_to_str' a simple task ID?
                              dep_to_remove_original_type = int(cycle_to_str)
                          except ValueError: # It's a subtask like "p.s" or other string
                              dep_to_remove_original_type = cycle_to_str
 
-                         # Special check for sibling subtask refs (int) vs task refs (int)
-                         if '.' in cycle_from_str and isinstance(dep_to_remove_original_type, int):
-                             parent_id_str, _ = cycle_from_str.split('.')
-                             # If the normalized string version matches, it was likely an int ref to sibling
-                             if f"{parent_id_str}.{dep_to_remove_original_type}" == cycle_to_str:
-                                 pass # Keep original int type
-                             else: # It was likely a task ID ref, keep as int
-                                 pass
-                         elif '.' not in cycle_from_str and '.' in cycle_to_str:
-                             # Task depending on subtask, keep string "p.s"
-                             dep_to_remove_original_type = cycle_to_str
-
-                         # Remove the dependency preserving original type if possible
-                         original_len = len(node_obj['dependencies'])
-                         node_obj['dependencies'] = [
-                             d for d in node_obj['dependencies'] if d != dep_to_remove_original_type
+                         # Refine removal logic based on original type stored in the model
+                         original_len = len(node_obj_model.dependencies)
+                         node_obj_model.dependencies = [
+                             d for d in node_obj_model.dependencies if d != dep_to_remove_original_type
                          ]
-                         if len(node_obj['dependencies']) < original_len:
+
+                         # Check if value was numeric sibling subtask reference that got normalized
+                         if isinstance(dep_to_remove_original_type, str) and '.' in dep_to_remove_original_type:
+                             try:
+                                  parent_part, sub_part = dep_to_remove_original_type.split('.')
+                                  # If the node being modified is also a subtask from the same parent...
+                                  if '.' in cycle_from_str and cycle_from_str.startswith(parent_part + '.'):
+                                       # ...then the original dependency might have been just the integer sub_id
+                                       sub_id_int = int(sub_part)
+                                       # Try removing the integer version as well
+                                       node_obj_model.dependencies = [
+                                           d for d in node_obj_model.dependencies if d != sub_id_int
+                                       ]
+                             except (ValueError, IndexError):
+                                  pass # Ignore parsing errors
+
+
+                         if len(node_obj_model.dependencies) < original_len:
                              fixes_summary["cycle"] += 1
                              made_changes = True
-                             # Update dependency map in memory if needed for subsequent cycle checks in this run
+                             # Update dependency map in memory for subsequent checks
                              dependency_map[cycle_from_str] = [
                                  d for d in dependency_map.get(cycle_from_str, []) if d != cycle_to_str
                              ]
-
 
     return made_changes, fixes_summary

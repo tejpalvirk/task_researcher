@@ -17,7 +17,7 @@ mcp_server = FastMCP(
     config.PROJECT_NAME,
     version=config.PROJECT_VERSION,
     dependencies=[
-        "task-researcher",
+        "task-researcher", # Match package name
         "typer", "instructor", "litellm", "anthropic",
         "google-generativeai", "knowledge-storm", "rich",
         "python-dotenv", "pydantic", "aiohttp", "requests"
@@ -25,13 +25,11 @@ mcp_server = FastMCP(
 )
 
 # --- MCP Resources ---
-# Resource handlers remain async, calling sync utils.read functions.
-# For very large files, these could block, consider adding to_thread if necessary.
 
 @mcp_server.resource("tasks://current")
 async def get_current_tasks(ctx: Context) -> Dict[str, Any]:
     """Provides the current content of the main tasks JSON file."""
-    # Sync file read - usually fast enough. Could wrap in to_thread if files are huge.
+    # Reading small JSON is likely fast enough to be sync within async handler
     tasks_data_dict = utils.read_json(config.TASKS_FILE_PATH)
     if tasks_data_dict:
         try:
@@ -41,12 +39,13 @@ async def get_current_tasks(ctx: Context) -> Dict[str, Any]:
              utils.log.warning(f"tasks.json at {config.TASKS_FILE_PATH} is invalid: {e}. Returning empty.")
              return models.TasksData().model_dump(mode='json', exclude_none=True)
     else:
+        # Return default empty structure if file doesn't exist or is invalid
         return models.TasksData().model_dump(mode='json', exclude_none=True)
+
 
 @mcp_server.resource("report://complexity")
 async def get_complexity_report(ctx: Context) -> Optional[Dict[str, Any]]:
     """Provides the content of the task complexity report, if it exists."""
-    # Sync file read
     report_data_dict = utils.read_complexity_report(config.COMPLEXITY_REPORT_PATH)
     if report_data_dict:
          try:
@@ -60,52 +59,89 @@ async def get_complexity_report(ctx: Context) -> Optional[Dict[str, Any]]:
 @mcp_server.resource("research://{topic_name}")
 async def get_storm_research(ctx: Context, topic_name: str) -> Optional[str]:
     """Provides the content of a previously generated STORM research report."""
-    # Sync file read
     safe_filename = utils.sanitize_filename(topic_name) + ".md"
+    # Check primary location first
     report_path = config.STORM_OUTPUT_DIR / safe_filename
     content: Optional[str] = None
-    if report_path.exists():
-        content = utils.read_file(report_path)
+
+    if report_path.is_file(): # Check if it's actually a file
+        content = await asyncio.to_thread(utils.read_file, report_path)
     else:
-        md_files = list(config.STORM_OUTPUT_DIR.glob(f"{utils.sanitize_filename(topic_name)}*.md"))
-        if md_files:
-            latest_md = max(md_files, key=lambda p: p.stat().st_mtime)
-            utils.log.info(f"Found potential STORM output via glob for topic '{topic_name}': {latest_md}")
-            content = utils.read_file(latest_md)
+        # Fallback: check directory for files starting similarly
+        try:
+             # Run glob in thread as it can touch the filesystem
+             md_files = await asyncio.to_thread(
+                 lambda: list(config.STORM_OUTPUT_DIR.glob(f"{utils.sanitize_filename(topic_name)}*.md"))
+             )
+             if md_files:
+                 # Get stat info and find latest file in thread
+                 def find_latest(files):
+                      return max(files, key=lambda p: p.stat().st_mtime) if files else None
+                 latest_md = await asyncio.to_thread(find_latest, md_files)
+
+                 if latest_md:
+                      utils.log.info(f"Found potential STORM output via glob for topic '{topic_name}': {latest_md}")
+                      content = await asyncio.to_thread(utils.read_file, latest_md)
+                 else:
+                      utils.log.warning(f"Glob found files, but couldn't determine latest for topic '{topic_name}'")
+             else:
+                 utils.log.warning(f"Research report not found for topic '{topic_name}' using primary path or glob.")
+        except Exception as e:
+            utils.log.error(f"Error accessing STORM directory for topic '{topic_name}': {e}")
+
+    return content
+
+@mcp_server.resource("taskfile://{task_id_or_phase}")
+async def get_task_file(ctx: Context, task_id_or_phase: str) -> Optional[str]:
+    """
+    Provides the content of a specific generated task file (task_XXX.txt or phase_YYY_task_XXX.txt).
+    Accepts either just the ID (e.g., '5') or the phase-based name ('phase_setup_task_005').
+    """
+    file_path: Optional[Path] = None
+    try:
+        # Try interpreting as just ID first
+        task_id = int(task_id_or_phase)
+        # Find the corresponding task data to get phase (requires reading tasks.json)
+        tasks_data = utils.read_json(config.TASKS_FILE_PATH)
+        task_dict = utils.find_task_by_id(tasks_data.get('tasks', []) if tasks_data else [], task_id)
+        phase_prefix = utils.sanitize_phase_name(task_dict.get('phase')) if task_dict else "unknown"
+        file_path = config.TASK_FILES_DIR / f"phase_{phase_prefix}_task_{task_id:03d}.txt"
+
+    except ValueError:
+        # If not an integer ID, assume it might be a full phase_... filename
+        potential_path = config.TASK_FILES_DIR / f"{task_id_or_phase}.txt"
+        if potential_path.name.startswith("phase_") and "_task_" in potential_path.name:
+             file_path = potential_path
         else:
-            utils.log.warning(f"Research report not found for topic '{topic_name}'")
-    return content
+             # Try matching just the task_XXX part if phase name is complex/unknown
+             match = re.match(r".*_task_(\d+)", task_id_or_phase)
+             if match:
+                  task_num = int(match.group(1))
+                   # Search for *any* file matching task_XXX.txt
+                  files = list(config.TASK_FILES_DIR.glob(f"*_task_{task_num:03d}.txt"))
+                  if files: file_path = files[0] # Take the first match
 
-@mcp_server.resource("taskfile://{task_id}")
-async def get_task_file(ctx: Context, task_id: int) -> Optional[str]:
-    """Provides the content of a specific generated task file (task_XXX.txt)."""
-    # Sync file read
-    file_path = config.TASK_FILES_DIR / f"task_{task_id:03d}.txt"
     content: Optional[str] = None
-    if file_path.exists():
-        content = utils.read_file(file_path)
+    if file_path and file_path.exists():
+        content = await asyncio.to_thread(utils.read_file, file_path)
     else:
-        utils.log.warning(f"Task file not found: {file_path}")
+        utils.log.warning(f"Task file not found matching identifier: {task_id_or_phase}")
+
     return content
 
-# --- MCP Tools ---
-# All tool handlers that perform potentially blocking IO or significant CPU work
-# should be async and use await asyncio.to_thread for sync calls,
-# or await direct async calls.
+
+# --- MCP Tools --- (Ensure they call async task_manager functions)
 
 @mcp_server.tool()
 async def parse_inputs(
-    ctx: Context, # Keep ctx even if unused
+    ctx: Context,
     num_tasks: int = 15,
     func_spec_path: Optional[str] = None,
     tech_spec_path: Optional[str] = None,
     plan_path: Optional[str] = None,
     research_doc_path: Optional[str] = None
     ) -> str:
-    """
-    Parses input specs to generate initial tasks and overwrites the tasks file.
-    (Calls async task_manager.parse_inputs)
-    """
+    """Parses input specs to generate initial tasks (incl. phase) and overwrites the tasks file."""
     utils.log.info(f"MCP Tool: Running parse_inputs (num_tasks={num_tasks})")
     try:
         f_path = Path(func_spec_path) if func_spec_path else config.FUNCTIONAL_SPEC_PATH
@@ -113,11 +149,12 @@ async def parse_inputs(
         p_path = Path(plan_path) if plan_path else config.PLAN_PATH
         r_path = Path(research_doc_path) if research_doc_path else config.DEEP_RESEARCH_PATH
 
-        await task_manager.parse_inputs( # Already async
+        await task_manager.parse_inputs(
             num_tasks=num_tasks, tasks_file_path=config.TASKS_FILE_PATH,
             func_spec_path=f_path, tech_spec_path=t_path, plan_path=p_path, research_path=r_path,
         )
-        tasks_data = utils.read_json(config.TASKS_FILE_PATH) # Sync read after async write
+        # Read back result count (sync ok after await)
+        tasks_data = utils.read_json(config.TASKS_FILE_PATH)
         count = len(tasks_data.get('tasks', [])) if tasks_data else 0
         return f"Successfully parsed inputs and generated {count} tasks in {config.TASKS_FILE_PATH}."
     except Exception as e:
@@ -126,18 +163,15 @@ async def parse_inputs(
 
 @mcp_server.tool()
 async def update_tasks(
-    ctx: Context, # Keep ctx
+    ctx: Context,
     from_id: int,
     prompt: str,
     research_hint: bool = False
     ) -> str:
-    """
-    Updates tasks from a specific ID based on the provided prompt.
-    (Calls async task_manager.update_tasks)
-    """
+    """Updates tasks (title, desc, details, phase, test strat) from ID based on prompt."""
     utils.log.info(f"MCP Tool: Running update_tasks (from_id={from_id}, research_hint={research_hint})")
     try:
-        await task_manager.update_tasks( # Already async
+        await task_manager.update_tasks(
             from_id=from_id, prompt=prompt, use_research=research_hint,
             tasks_file_path=config.TASKS_FILE_PATH
         )
@@ -147,11 +181,8 @@ async def update_tasks(
         return f"Error updating tasks: {e}"
 
 @mcp_server.tool()
-async def generate_task_files(ctx: Context) -> str: # Uses to_thread
-    """
-    Generates individual task description files (task_XXX.txt).
-    (Calls sync task_manager.generate_task_files)
-    """
+async def generate_task_files(ctx: Context) -> str:
+    """Generates individual task files (phase_X_task_Y.txt)."""
     utils.log.info(f"MCP Tool: Running generate_task_files")
     try:
         # Run the synchronous function in a thread
@@ -167,78 +198,75 @@ async def generate_task_files(ctx: Context) -> str: # Uses to_thread
 
 @mcp_server.tool()
 async def expand_task(
-    ctx: Context, # Keep ctx
+    ctx: Context,
     task_id: int,
     num_subtasks: Optional[int] = None,
     research: bool = False,
     prompt: Optional[str] = None,
     force: bool = False
     ) -> str:
-    """
-    Expands a specific task into subtasks using AI (optional STORM research).
-    (Calls async task_manager.expand_task)
-    """
+    """Expands a task into subtasks (with AC). Use research=True for STORM workflow (requires confirmation via logs/UI if run manually)."""
     utils.log.info(f"MCP Tool: Running expand_task (id={task_id}, research={research}, force={force})")
     if research and not task_manager._ensure_storm_imported():
         return "Error: knowledge-storm package required for --research but not found or failed to import."
     try:
-        await task_manager.expand_task( # Already async
+        # NOTE: Confirmation step in task_manager.expand_task relies on interactive console.
+        # For MCP, it will proceed without confirmation if research=True.
+        # Consider adding a separate MCP tool or flag to *only* generate the research plan first.
+        await task_manager.expand_task(
             task_id=task_id, num_subtasks=num_subtasks, use_research=research,
             prompt=prompt, force=force, tasks_file_path=config.TASKS_FILE_PATH
         )
-        tasks_data = utils.read_json(config.TASKS_FILE_PATH) # Sync read ok after await
+        # Read back subtask count (sync ok after await)
+        tasks_data = utils.read_json(config.TASKS_FILE_PATH)
         task_dict = utils.find_task_by_id(tasks_data.get('tasks',[]), task_id) if tasks_data else None
         sub_count = len(task_dict.get('subtasks',[])) if task_dict else 0
-        return f"Successfully expanded task {task_id}. It now has {sub_count} subtasks."
+        research_msg = " with STORM research" if research else ""
+        return f"Successfully expanded task {task_id}{research_msg}. It now has {sub_count} subtasks."
     except Exception as e:
         utils.log.exception(f"MCP Tool: expand_task id={task_id} failed")
         return f"Error expanding task {task_id}: {e}"
 
 @mcp_server.tool()
 async def expand_all_tasks(
-    ctx: Context, # Keep ctx
+    ctx: Context,
     num_subtasks: Optional[int] = None,
     research: bool = False,
     prompt: Optional[str] = None,
     force: bool = False
     ) -> str:
-    """
-    Expands all eligible pending tasks into subtasks using AI (optional STORM research).
-    (Calls async task_manager.expand_all_tasks)
-    """
+    """Expands all eligible pending tasks into subtasks (with AC). Use research=True for STORM workflow (no confirmation via MCP)."""
     utils.log.info(f"MCP Tool: Running expand_all_tasks (research={research}, force={force})")
     if research and not task_manager._ensure_storm_imported():
         return "Error: knowledge-storm package required for --research but not found or failed to import."
     try:
-        await task_manager.expand_all_tasks( # Already async
+        # NOTE: Confirmation step is bypassed when called via MCP.
+        await task_manager.expand_all_tasks(
             num_subtasks=num_subtasks, use_research=research, prompt=prompt,
             force=force, tasks_file_path=config.TASKS_FILE_PATH
         )
-        return f"Bulk expansion process completed. Check logs and tasks file for details."
+        research_msg = " with STORM research" if research else ""
+        return f"Bulk expansion process{research_msg} completed. Check logs and tasks file for details."
     except Exception as e:
         utils.log.exception(f"MCP Tool: expand_all_tasks failed")
         return f"Error expanding all tasks: {e}"
 
 @mcp_server.tool()
 async def analyze_complexity(
-    ctx: Context, # Keep ctx
+    ctx: Context,
     research_hint: bool = False,
     threshold: float = 5.0,
     output_file: Optional[str] = None
     ) -> str:
-    """
-    Analyzes complexity of all tasks using AI and saves a report.
-    (Calls async task_manager.analyze_complexity)
-    """
+    """Analyzes complexity of all tasks using AI and saves a report."""
     utils.log.info(f"MCP Tool: Running analyze_complexity (research_hint={research_hint})")
     try:
         report_path = Path(output_file) if output_file else config.COMPLEXITY_REPORT_PATH
-        await task_manager.analyze_complexity( # Already async
+        await task_manager.analyze_complexity(
             output_path=report_path, use_research=research_hint, threshold=threshold,
             tasks_file_path=config.TASKS_FILE_PATH
         )
         if report_path.exists():
-             # Return absolute path for clarity
              abs_path = str(report_path.resolve())
              return f"Complexity analysis complete. Report saved to: {abs_path}. Use 'get_complexity_report' resource to read."
         else:
@@ -248,19 +276,14 @@ async def analyze_complexity(
         return f"Error analyzing complexity: {e}"
 
 @mcp_server.tool()
-async def validate_dependencies(ctx: Context) -> str: # Uses to_thread
-    """
-    Validates task dependencies for issues like missing refs or cycles.
-    (Calls sync dependency_manager.validate_dependencies)
-    """
+async def validate_dependencies(ctx: Context) -> str:
+    """Validates task dependencies for issues like missing refs or cycles."""
     utils.log.info("MCP Tool: Running validate_dependencies")
     try:
-        # Read synchronously before thread work
         tasks_data_dict = utils.read_json(config.TASKS_FILE_PATH)
         if not tasks_data_dict: return "Error: Cannot read tasks file."
         tasks_data = models.TasksData.model_validate(tasks_data_dict)
 
-        # Run synchronous validation in a thread
         is_valid, issues = await asyncio.to_thread(
             dependency_manager.validate_dependencies,
             tasks_data
@@ -276,28 +299,21 @@ async def validate_dependencies(ctx: Context) -> str: # Uses to_thread
         return f"Error validating dependencies: {e}"
 
 @mcp_server.tool()
-async def fix_dependencies(ctx: Context) -> str: # Uses to_thread
-    """
-    Automatically fixes invalid dependencies (missing refs, self-deps, simple cycles).
-    (Calls sync dependency_manager.fix_dependencies and sync task_manager.generate_task_files)
-    """
+async def fix_dependencies(ctx: Context) -> str:
+    """Automatically fixes invalid dependencies."""
     utils.log.info("MCP Tool: Running fix_dependencies")
     try:
-        # Read synchronously before starting thread work
         tasks_data_dict = utils.read_json(config.TASKS_FILE_PATH)
         if not tasks_data_dict: return "Error: Cannot read tasks file."
         tasks_data = models.TasksData.model_validate(tasks_data_dict)
 
-        # Run synchronous fixing logic in a thread
         made_changes, fixes_summary = await asyncio.to_thread(
             dependency_manager.fix_dependencies,
             tasks_data
         )
 
         if made_changes:
-            # Write and generate files synchronously after thread completes
             utils.write_json(config.TASKS_FILE_PATH, tasks_data.model_dump(mode='json', exclude_none=True))
-            # Also run file generation in a thread as it involves IO
             await asyncio.to_thread(
                 task_manager.generate_task_files,
                 config.TASKS_FILE_PATH,
@@ -312,16 +328,13 @@ async def fix_dependencies(ctx: Context) -> str: # Uses to_thread
         return f"Error fixing dependencies: {e}"
 
 @mcp_server.tool()
-async def research_topic( # Uses await on async task_manager function
-    ctx: Context, # Keep ctx
+async def research_topic(
+    ctx: Context,
     topic: str,
     output_file: Optional[str] = None,
     search_top_k: int = config.STORM_SEARCH_TOP_K,
     ) -> str:
-    """
-    Generates a research report on a given topic using knowledge-storm.
-    (Calls async task_manager.run_storm_research_for_topic)
-    """
+    """Generates a research report on a given topic using knowledge-storm."""
     utils.log.info(f"MCP Tool: Running research_topic (topic='{topic}')")
     if not task_manager._ensure_storm_imported():
         return "Error: knowledge-storm package required but not found or failed to import."
@@ -330,18 +343,16 @@ async def research_topic( # Uses await on async task_manager function
         report_path = Path(output_file) if output_file else (storm_output_dir / f"{utils.sanitize_filename(topic)}.md")
         report_path.parent.mkdir(parents=True, exist_ok=True)
 
-        # Await the async function which uses to_thread internally for STORM's sync run
         article_content = await task_manager.run_storm_research_for_topic(
             topic_name=topic,
             questions=[f"Provide a comprehensive overview of {topic}."],
             search_top_k=search_top_k,
+            # Use default conv/article tokens from config inside the function
         )
 
-        if article_content is not None: # Check for None on failure
-            # Write file sync after await
-            utils.write_file(report_path, article_content)
+        if article_content is not None:
+            await asyncio.to_thread(utils.write_file, report_path, article_content)
             abs_path = str(report_path.resolve())
-            # Return path and mention the resource
             return f"STORM research complete. Report saved to: {abs_path}. Use 'get_storm_research' resource with topic '{topic}' to read."
         else:
             return "STORM research failed or no content was generated."
@@ -349,7 +360,7 @@ async def research_topic( # Uses await on async task_manager function
         utils.log.exception(f"MCP Tool: research_topic failed for topic '{topic}'")
         return f"Error during STORM research for topic '{topic}': {e}"
 
-# --- Main Execution --- (remains the same)
+# --- Main Execution ---
 def run_server():
     """Runs the MCP server."""
     utils.log.info("Starting Task Researcher MCP Server...")

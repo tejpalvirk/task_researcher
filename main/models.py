@@ -11,11 +11,10 @@ class Subtask(BaseModel):
     title: str = Field(..., description="Brief, descriptive title of the subtask.")
     description: Optional[str] = Field(None, description="Concise description of what the subtask involves.")
     details: Optional[str] = Field(None, description="In-depth implementation instructions for the subtask.")
+    acceptanceCriteria: Optional[str] = Field(None, description="Criteria to verify subtask completion.") # Added field
     status: Literal["pending", "in-progress", "done", "deferred", "blocked"] = Field("pending", description="Current state of the subtask.")
     # Dependencies are IDs of *sibling* subtasks (int) or parent/other tasks (int/str)
     dependencies: List[Union[int, str]] = Field([], description="IDs of subtasks (int) or tasks (int/str) this depends on.")
-    # parentTaskId: Optional[int] = Field(None, description="ID of the parent task (added dynamically).")
-    # isSubtask: Optional[bool] = Field(None, description="Flag indicating this is a subtask (added dynamically).")
 
     @field_validator('dependencies', mode='before')
     @classmethod
@@ -27,6 +26,7 @@ class Subtask(BaseModel):
 class Task(BaseModel):
     id: int
     title: str = Field(..., description="Brief, descriptive title of the task.")
+    phase: Optional[str] = Field(None, description="The development phase this task belongs to (e.g., 'Setup', 'Backend API', 'UI').") # Added field
     description: Optional[str] = Field(None, description="Concise description of what the task involves.")
     details: Optional[str] = Field(None, description="In-depth implementation instructions.")
     status: Literal["pending", "in-progress", "done", "deferred", "blocked"] = Field("pending", description="Current state of the task.")
@@ -56,7 +56,7 @@ class TasksData(BaseModel):
 
 # --- Complexity Analysis Models ---
 class ComplexityAnalysisItem(BaseModel):
-    model_config = ConfigDict(extra='ignore') # Ignore expansionCommand if present
+    model_config = ConfigDict(extra='ignore')
 
     taskId: int
     taskTitle: str

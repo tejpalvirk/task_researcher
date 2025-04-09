@@ -67,7 +67,8 @@ task-researcher complexity-report
 task-researcher expand --id 5 --num 4
 
 # Expand task 7 using the STORM research workflow
-# (Generates questions -> groups topics -> runs STORM -> generates subtasks w/ research)
+# Generates questions -> groups topics -> runs STORM -> generates subtasks w/ research)
+# Will show research plan & token estimate, ask for confirmation before running STORM
 task-researcher expand --id 7 --research
 
 # Expand all eligible tasks using STORM research workflow
