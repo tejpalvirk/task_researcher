@@ -241,16 +241,17 @@ def _get_storm_runner(search_top_k: int, max_conv_tokens: int, max_article_token
 
     # 1. LM Configs
     lm_configs = STORMWikiLMConfigs()
-    storm_llm_kwargs = {"model": config.STORM_LLM_MODEL, "temperature": config.TEMPERATURE}
+    big_llm_kwargs = {"model": config.BIG_STORM_MODEL, "temperature": config.BIG_STORM_TEMP}
+    small_llm_kwargs = {"model": config.SMALL_STORM_MODEL, "temperature": config.SMALL_STORM_TEMP}
 
     # Allow overriding via specific STORM env vars if needed in the future
     # STORM models use LiteLLM model instances
     lm_powerful = LitellmModel(
-        **storm_llm_kwargs,
+        **big_llm_kwargs,
         max_tokens=max_article_tokens,
     )
     lm_fast = LitellmModel(
-        **storm_llm_kwargs,
+        **small_llm_kwargs,
         max_tokens=max_conv_tokens,
     )
     lm_configs.set_conv_simulator_lm(lm_fast)

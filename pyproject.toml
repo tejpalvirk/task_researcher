@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "task-researcher"
-version = "0.1.1"
+version = "0.1.2"
 description = "Python Task Research System using AI for Task Breakdown and STORM-based Research"
 authors = ["Tejpal Virk"]
 readme = "README.md"

@@ -23,7 +23,10 @@ TAVILY_API_KEY = os.getenv("TAVILY_API_KEY")
 SERPER_API_KEY = os.getenv("SERPER_API_KEY")
 # Add other potential keys here
 
-STORM_LLM_MODEL = os.getenv("STORM_LLM_MODEL", "claude-3-haiku-20240307") # Model for STORM internals
+BIG_STORM_MODEL = os.getenv("BIG_STORM_MODEL", "claude-3-5-sonnet-20240620")
+SMALL_STORM_MODEL = os.getenv("SMALL_STORM_MODEL", "claude-3-haiku-20240307")
+BIG_STORM_TEMP = float(os.getenv("TEMPERATURE", 0.7))
+SMALL_STORM_TEMP = float(os.getenv("TEMPERATURE", 0.7))
 STORM_EMBEDDING_MODEL = os.getenv("STORM_EMBEDDING_MODEL") # e.g., "text-embedding-3-small"
 STORM_SEARCH_TOP_K = int(os.getenv("STORM_SEARCH_TOP_K", 5))
 STORM_MAX_TOKENS_CONV = int(os.getenv("STORM_MAX_TOKENS_CONV", 500))
@@ -33,8 +36,8 @@ STORM_OUTPUT_DIR = Path(os.getenv("STORM_OUTPUT_DIR", "scripts/storm_research_ou
 # --- Task Researcher Configuration ---
 DEFAULT_SUBTASKS = int(os.getenv("DEFAULT_SUBTASKS", 3))
 DEFAULT_PRIORITY = os.getenv("DEFAULT_PRIORITY", "medium")
-PROJECT_NAME = os.getenv("PROJECT_NAME", "Task Researcher Project")
-PROJECT_VERSION = "0.1.0" # Should ideally pull from pyproject.toml if possible
+PROJECT_NAME = os.getenv("PROJECT_NAME", "Task Researcher")
+PROJECT_VERSION = "0.1.2" # Should ideally pull from pyproject.toml if possible
 TASKS_FILE_PATH = Path(os.getenv("TASKS_FILE_PATH", "tasks/tasks.json"))
 COMPLEXITY_REPORT_PATH = Path(os.getenv("COMPLEXITY_REPORT_PATH", "scripts/task-complexity-report.json"))
 TASK_FILES_DIR = Path(os.getenv("TASK_FILES_DIR", "tasks"))

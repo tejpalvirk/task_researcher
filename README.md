@@ -41,7 +41,7 @@ A Python task management system designed for AI-driven development, featuring in
     *   Fill in your primary LLM API key (e.g., `ANTHROPIC_API_KEY`).
     *   Set the `LLM_MODEL` for primary tasks (e.g., `"claude-3-5-sonnet-20240620"`).
     *   Set the `STORM_RETRIEVER` (e.g., `"bing"`) and its corresponding API key (`BING_SEARCH_API_KEY`).
-    *   (Optional) Set `STORM_LLM_MODEL` if you want STORM to use a different (e.g., faster/cheaper) model internally.
+    *   (Optional) Set `BIG_STORM_MODEL` and `SMALL_STORM_MODEL` to use a different (e.g., faster/cheaper) models for STORM research.
     *   (Optional) Adjust other settings like `MAX_TOKENS`, `TEMPERATURE`, file paths, etc.
 
 ## Usage Command Line Interface (CLI)
@@ -187,7 +187,8 @@ Refer to `.env.example`. Key settings include:
 *   `ANTHROPIC_API_KEY`, `GOOGLE_API_KEY`, etc.: Credentials for the primary LLM.
 *   `STORM_RETRIEVER`: Search engine for STORM (`bing`, `you`, `tavily`, etc.).
 *   `BING_SEARCH_API_KEY`, `YDC_API_KEY`, `TAVILY_API_KEY`, etc.: Key for the chosen STORM retriever.
-*   `STORM_LLM_MODEL`: (Optional) Different model for STORM's internal processing.
+*   `BIG_STORM_MODEL`: (Optional) Big model for STORM's internal processing.
+*   `SMALL_STORM_MODEL`: (Optional) Small model for STORM's internal processing.
 *   `STORM_SEARCH_TOP_K`, `STORM_MAX_TOKENS_*`: Control STORM's depth.
 *   File paths (`TASKS_FILE_PATH`, etc.).
 
@@ -199,7 +200,7 @@ The structure follows the Pydantic models defined in `task_master_py/models.py`,
 {
   "meta": {
     "projectName": "Task Master Project",
-    "projectVersion": "0.1.0",
+    "projectVersion": "0.1.2",
     "sourceFiles": ["scripts/plan.md", "..."],
     "generatedAt": "...",
     "totalTasks": 15
