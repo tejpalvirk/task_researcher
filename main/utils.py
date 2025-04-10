@@ -65,7 +65,6 @@ def write_file(filepath: Path, content: str):
 
 
 # --- Task Utilities ---
-# (task_exists, find_task_by_id, get_next_task_id, get_next_subtask_id remain the same)
 def task_exists(tasks: List[Dict[str, Any]], task_id: Union[str, int]) -> bool:
     """Checks if a task or subtask exists."""
     if not task_id or not tasks:
@@ -199,3 +198,10 @@ def find_cycles(
 
     recursion_stack.remove(task_id_str)
     return cycles_found
+
+# --- Phase Formatting ---
+def format_phase_for_filename(phase: Optional[int]) -> str:
+    """Formats a phase number for use in filenames (e.g., 1 -> '01', None -> '00')."""
+    if phase is None or not isinstance(phase, int) or phase <= 0:
+        return "00" # Default for unknown/invalid phase
+    return f"{phase:02d}" # Pad with zero if needed

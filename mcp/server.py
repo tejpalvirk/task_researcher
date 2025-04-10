@@ -91,41 +91,40 @@ async def get_storm_research(ctx: Context, topic_name: str) -> Optional[str]:
 
     return content
 
-@mcp_server.resource("taskfile://{task_id_or_phase}")
-async def get_task_file(ctx: Context, task_id_or_phase: str) -> Optional[str]:
+@mcp_server.resource("taskfile://{task_id_str}") # Renamed arg for clarity
+async def get_task_file(ctx: Context, task_id_str: str) -> Optional[str]:
     """
-    Provides the content of a specific generated task file (task_XXX.txt or phase_YYY_task_XXX.txt).
-    Accepts either just the ID (e.g., '5') or the phase-based name ('phase_setup_task_005').
+    Provides the content of a specific generated task file (phase_XX_task_YYY.txt).
+    Accepts the task ID as a string (e.g., '5').
     """
     file_path: Optional[Path] = None
     try:
-        # Try interpreting as just ID first
-        task_id = int(task_id_or_phase)
-        # Find the corresponding task data to get phase (requires reading tasks.json)
+        task_id = int(task_id_str) # Expecting just the ID number as a string
+        # Find the corresponding task data to get phase
         tasks_data = utils.read_json(config.TASKS_FILE_PATH)
         task_dict = utils.find_task_by_id(tasks_data.get('tasks', []) if tasks_data else [], task_id)
-        phase_prefix = utils.sanitize_phase_name(task_dict.get('phase')) if task_dict else "unknown"
-        file_path = config.TASK_FILES_DIR / f"phase_{phase_prefix}_task_{task_id:03d}.txt"
+
+        if task_dict:
+            phase_prefix = utils.format_phase_for_filename(task_dict.get('phase'))
+            filename = f"phase_{phase_prefix}_task_{task_id:03d}.txt"
+            file_path = config.TASK_FILES_DIR / filename
+            utils.log.info(f"Attempting to read task file: {file_path}")
+        else:
+             utils.log.warning(f"Task ID {task_id} not found in tasks data.")
 
     except ValueError:
-        # If not an integer ID, assume it might be a full phase_... filename
-        potential_path = config.TASK_FILES_DIR / f"{task_id_or_phase}.txt"
-        if potential_path.name.startswith("phase_") and "_task_" in potential_path.name:
-             file_path = potential_path
-        else:
-             # Try matching just the task_XXX part if phase name is complex/unknown
-             match = re.match(r".*_task_(\d+)", task_id_or_phase)
-             if match:
-                  task_num = int(match.group(1))
-                   # Search for *any* file matching task_XXX.txt
-                  files = list(config.TASK_FILES_DIR.glob(f"*_task_{task_num:03d}.txt"))
-                  if files: file_path = files[0] # Take the first match
+        utils.log.error(f"Invalid task_id '{task_id_str}' provided. Must be an integer.")
+        return None # Return None for invalid ID format
+    except Exception as e:
+        utils.log.exception(f"Error resolving task file path for ID {task_id_str}")
+        return None
 
     content: Optional[str] = None
     if file_path and file_path.exists():
         content = await asyncio.to_thread(utils.read_file, file_path)
     else:
-        utils.log.warning(f"Task file not found matching identifier: {task_id_or_phase}")
+        utils.log.warning(f"Task file not found at expected path: {file_path}")
+        # Optional: Could add glob fallback here if really needed
 
     return content
 

@@ -60,6 +60,7 @@ async def call_llm_with_instructor(
         # e.g., handling API errors, validation errors from Instructor
         return None
 
+
 async def call_llm_for_tasks(
     functional_spec: str,
     technical_spec: str,
@@ -71,16 +72,15 @@ async def call_llm_for_tasks(
     """Calls LLM to generate tasks from input specifications."""
     log.info(f"Generating ~{num_tasks} tasks from input files using {config.LLM_MODEL}...")
 
-    # NOTE: Removed explicit "Respond ONLY with JSON..." instructions. Relying on Instructor.
-    # Added instruction to extract 'phase'.
+    # Updated prompt for numeric phase
     system_prompt = f"""You are an AI assistant helping to break down project specifications into sequential development tasks.
 Your goal is to create approximately {num_tasks} well-structured, actionable development tasks based on the provided plan and specifications.
-Assign a relevant 'phase' name to each task based on the structure outlined in the `plan.md` content (e.g., "Setup", "Backend API", "UI Implementation", "Deployment"). If no clear phase is identifiable, use `null`.
+Assign a relevant numeric 'phase' (e.g., 1, 2, 3) to each task based on the structure outlined in the `plan.md` content. Look for numbered phases or sections in the plan. If no numeric phase is identifiable, use `null`.
 
 Each task should have the following fields, inferred from the inputs:
 - id: (sequential integer starting from 1)
 - title: (string)
-- phase: (string or null) - Extracted/inferred from the plan.
+- phase: (integer or null) - The numeric phase (e.g., 1, 2) derived from the plan.
 - description: (string)
 - details: (string - implementation details)
 - status: "pending"
@@ -91,7 +91,7 @@ Each task should have the following fields, inferred from the inputs:
 
 Guidelines:
 1. Generate roughly {num_tasks} tasks, numbered sequentially starting from 1. Assign IDs correctly.
-2. Base tasks on the high-level plan provided, breaking down each planned item and associating it with a phase name found in the plan.
+2. Base tasks on the high-level plan provided, breaking down each planned item and associating it with its corresponding phase NUMBER found in the plan.
 3. Use the functional spec, technical spec, and deep research for details, implementation guidance, and test strategies.
 4. Ensure tasks are atomic and focus on a single responsibility.
 5. Order tasks logically, respecting phases in the plan and technical dependencies. Prioritize setup and core functionality.
@@ -100,7 +100,7 @@ Guidelines:
 8. Include detailed implementation guidance in "details" and a clear validation approach in "testStrategy".
 """
 
-    # Careful with markdown formatting here, especially around {plan}
+    # Ensure plan formatting is preserved in the user prompt
     user_content = f"""Please generate approximately {num_tasks} development tasks based on the following project inputs:
 
 ## High-Level Plan (`plan.md`)
@@ -123,8 +123,9 @@ Guidelines:
 {deep_research}
 ```
 
-Generate the tasks, ensuring task IDs are sequential starting from 1, dependencies are valid, and each task has a relevant 'phase' derived from the Plan section.
+Generate the tasks. Ensure task IDs are sequential starting from 1, dependencies are valid, and each task has a relevant numeric 'phase' derived from the Plan section (or null if none).
 """
+
     messages = [
         {"role": "system", "content": system_prompt},
         {"role": "user", "content": user_content},
@@ -138,16 +139,23 @@ Generate the tasks, ensuring task IDs are sequential starting from 1, dependenci
         response.meta.totalTasks = len(response.tasks)
         # Post-process IDs, dependencies, phase, status
         current_max_id = 0
-        for i, task in enumerate(response.tasks):
-            task.id = i + 1
-            task.dependencies = [dep for dep in task.dependencies if isinstance(dep, int) and 0 < dep < task.id]
-            task.status = "pending"
-            task.subtasks = []
-            # Ensure phase is a string or None
-            task.phase = str(task.phase) if task.phase is not None else None
-            current_max_id = task.id
+        processed_tasks = []
+        for i, task_model in enumerate(response.tasks):
+             # Validate with Pydantic model before adding
+             try:
+                task = Task(**task_model.model_dump()) # Includes phase validation
+                task.id = i + 1
+                task.dependencies = [dep for dep in task.dependencies if isinstance(dep, int) and 0 < dep < task.id]
+                task.status = "pending"
+                task.subtasks = []
+                # Phase validation already happened in Pydantic model
+                processed_tasks.append(task)
+                current_max_id = task.id
+             except Exception as val_err:
+                 log.warning(f"Skipping task due to validation error: {val_err}. Original data: {task_model.model_dump()}")
+
+        response.tasks = processed_tasks # Replace with validated tasks
         response.meta.totalTasks = current_max_id
-        # Ensure meta defaults are set if LLM didn't provide them
         if not response.meta.projectName: response.meta.projectName = config.PROJECT_NAME
         if not response.meta.projectVersion: response.meta.projectVersion = config.PROJECT_VERSION
 
@@ -156,8 +164,8 @@ Generate the tasks, ensuring task IDs are sequential starting from 1, dependenci
         log.error("LLM failed to generate tasks.")
         return None
 
+
 async def generate_research_questions(task: Task) -> Optional[List[str]]:
-    """Generates research questions for a given task."""
     log.info(f"Generating research questions for task {task.id}...")
     system_prompt = """You are an AI research assistant helping to break down complex software tasks.
 Given a task description, identify key areas requiring further research before implementation or subtask creation.
@@ -168,6 +176,7 @@ Generate a concise list of specific, actionable research questions.
 
 **Task ID:** {task.id}
 **Title:** {task.title}
+**Phase:** {task.phase or 'N/A'}
 **Description:** {task.description or 'N/A'}
 **Details:**
 ```
@@ -177,19 +186,13 @@ Generate a concise list of specific, actionable research questions.
 ```
 {task.testStrategy or 'No test strategy provided.'}
 ```
-
 Generate the list of research questions.
 """
-    messages = [
-        {"role": "system", "content": system_prompt},
-        {"role": "user", "content": user_content},
-    ]
+    messages = [{"role": "system", "content": system_prompt}, {"role": "user", "content": user_content}]
     response = await call_llm_with_instructor(messages, ResearchQuestions)
     return response.questions if response else None
 
-
 async def group_questions_into_topics(questions: List[str], task: Task) -> Optional[Dict[str, List[str]]]:
-    """Groups research questions into logical topics using an LLM."""
     if not questions: return None
     log.info(f"Grouping {len(questions)} research questions into topics for task {task.id}...")
     system_prompt = """You are an AI assistant skilled at organizing information.
@@ -198,7 +201,7 @@ Each topic should represent a distinct area of investigation needed for the task
 Ensure the keys are descriptive topic names and the values are lists of the original question strings.
 """
     question_list_str = "\n".join([f"- {q}" for q in questions])
-    user_content = f"""Group the following research questions related to the task "{task.title}" into 2-4 logical topics:
+    user_content = f"""Group the following research questions related to the task "{task.title}" (Phase {task.phase or 'N/A'}) into 2-4 logical topics:
 
 **Research Questions:**
 {question_list_str}
@@ -209,13 +212,9 @@ Description: {utils.truncate(task.description, 100)}
 
 Generate the topics and their corresponding questions.
 """
-    messages = [
-        {"role": "system", "content": system_prompt},
-        {"role": "user", "content": user_content},
-    ]
+    messages = [{"role": "system", "content": system_prompt}, {"role": "user", "content": user_content}]
     response = await call_llm_with_instructor(messages, ResearchTopics)
     return response.topics if response else None
-
 
 async def generate_subtasks_with_llm(
     parent_task: Task,
@@ -223,7 +222,6 @@ async def generate_subtasks_with_llm(
     next_subtask_id: int,
     additional_context: str = "",
 ) -> Optional[List[Subtask]]:
-    """Generates subtasks for a given task using an LLM, potentially with research context."""
     log.info(f"Generating {num_subtasks} subtasks for task {parent_task.id} using {config.LLM_MODEL}...")
     has_research_context = bool(additional_context)
 
@@ -241,9 +239,9 @@ Subtasks should include:
 - dependencies: List[int] (IDs of *sibling* subtasks generated in this batch, starting from {next_subtask_id})
 
 Guidelines:
-1. Create {num_subtasks} specific, actionable implementation steps, small enough for a focused coding session.
+1. Create {num_subtasks} specific, actionable implementation steps.
 2. Ensure a logical sequence for implementation.
-3. Collectively cover the parent task's requirements, incorporating insights from the provided context/research.
+3. Collectively cover the parent task's requirements, incorporating context/research.
 4. Provide clear implementation guidance in 'details'.
 5. Define clear 'acceptanceCriteria' for each subtask.
 6. Define dependencies between subtasks using their sequential IDs (starting from {next_subtask_id}). Use `[]` for no dependencies.
@@ -252,6 +250,7 @@ Guidelines:
 
 **Parent Task ID:** {parent_task.id}
 **Parent Task Title:** {parent_task.title}
+**Parent Task Phase:** {parent_task.phase or 'N/A'}
 **Parent Task Description:** {parent_task.description or 'N/A'}
 **Parent Task Details:**
 ```
@@ -269,20 +268,17 @@ Guidelines:
 
 Generate a list of {num_subtasks} subtask objects. Assign IDs sequentially starting from {next_subtask_id}. Define dependencies relative to these new IDs. Include 'acceptanceCriteria' for each.
 """
-    messages = [
-        {"role": "system", "content": system_prompt},
-        {"role": "user", "content": user_content},
-    ]
+    messages = [{"role": "system", "content": system_prompt}, {"role": "user", "content": user_content}]
     max_tokens = config.MAX_TOKENS * 2 if has_research_context else config.MAX_TOKENS
 
     response = await call_llm_with_instructor(messages, List[Subtask], max_tokens_override=max_tokens)
 
     if response:
         log.info(f"Successfully generated {len(response)} subtasks for task {parent_task.id}.")
-        # Post-process IDs and dependencies
+        # Post-process IDs and dependencies (same as before)
         validated_subtasks = []
         for i, subtask_model in enumerate(response):
-             subtask = Subtask(**subtask_model.model_dump()) # Validate/apply defaults
+             subtask = Subtask(**subtask_model.model_dump())
              subtask.id = next_subtask_id + i
              subtask.status = "pending"
              valid_deps = []
@@ -293,10 +289,8 @@ Generate a list of {num_subtasks} subtask objects. Assign IDs sequentially start
                      else: log.warning(f"Subtask {subtask.id} (parent {parent_task.id}) has invalid dependency {dep_id}. Removing.")
                  except (ValueError, TypeError): log.warning(f"Subtask {subtask.id} (parent {parent_task.id}) has non-integer dependency '{dep}'. Removing.")
              subtask.dependencies = valid_deps
-             # Ensure acceptance criteria is string or None
              subtask.acceptanceCriteria = str(subtask.acceptanceCriteria) if subtask.acceptanceCriteria is not None else None
              validated_subtasks.append(subtask)
-
         if len(validated_subtasks) != num_subtasks:
              log.warning(f"LLM generated {len(validated_subtasks)} subtasks, expected {num_subtasks}.")
         return validated_subtasks
@@ -306,9 +300,8 @@ Generate a list of {num_subtasks} subtask objects. Assign IDs sequentially start
 
 async def analyze_task_complexity_with_llm(
     tasks_data: TasksData,
-    use_research_prompt: bool = False, # Research HINT only
+    use_research_prompt: bool = False,
 ) -> Optional[List[ComplexityAnalysisItem]]:
-    """Analyzes complexity for a list of tasks using an LLM."""
     log.info(f"Analyzing complexity for {len(tasks_data.tasks)} tasks using {config.LLM_MODEL}...")
     research_guidance = """
 Leverage your knowledge of software engineering best practices, potential complexities, and common implementation patterns related to each task's domain.
@@ -336,15 +329,12 @@ For each task, provide:
 
 Generate the analysis for each task.
 """
-    messages = [
-        {"role": "system", "content": system_prompt},
-        {"role": "user", "content": user_content},
-    ]
+    messages = [{"role": "system", "content": system_prompt}, {"role": "user", "content": user_content}]
     response = await call_llm_with_instructor(messages, List[ComplexityAnalysisItem], max_tokens_override=config.MAX_TOKENS * 2)
 
     if response:
         log.info(f"Successfully generated complexity analysis for {len(response)} tasks.")
-        # Validation logic (same as before)
+        # Validation logic remains the same
         analyzed_ids = {item.taskId for item in response}
         input_ids = {task.id for task in tasks_data.tasks}
         missing_ids = input_ids - analyzed_ids
@@ -361,13 +351,11 @@ Generate the analysis for each task.
         log.error("LLM failed to generate complexity analysis.")
         return None
 
-
 async def update_tasks_with_llm(
     tasks_to_update: List[Task],
     update_prompt: str,
-    use_research_prompt: bool = False, # Research HINT only
+    use_research_prompt: bool = False,
 ) -> Optional[List[Task]]:
-    """Updates a list of tasks based on a new prompt using an LLM."""
     if not tasks_to_update: return []
     log.info(f"Updating {len(tasks_to_update)} tasks using {config.LLM_MODEL}...")
     research_guidance = """
@@ -380,8 +368,9 @@ Do NOT change `id`, `status`, `dependencies`, `priority`, or existing `subtasks`
 Apply the changes consistently across all relevant tasks. Ensure updated tasks remain actionable and clear.
 {research_guidance}
 """
+    # Include phase in input context
     tasks_input_str = json.dumps(
-        [t.model_dump(exclude={'subtasks'}) for t in tasks_to_update], # Exclude subtasks
+        [t.model_dump(exclude={'subtasks'}) for t in tasks_to_update],
         indent=2
     )
     user_content = f"""Here are the tasks to update:
@@ -392,23 +381,26 @@ Please update these tasks based on the following new context or requirement chan
 ```
 {update_prompt}
 ```
-Return the updated task objects for ALL the tasks listed above. Preserve fields like `id`, `status`, `dependencies`, `priority`, and existing `subtasks` unless the update prompt specifically instructs otherwise.
+Return the updated task objects for ALL the tasks listed above. Preserve fields like `id`, `status`, `dependencies`, `priority`, and existing `subtasks` unless the update prompt specifically instructs otherwise. If the prompt implies a phase change, update the numeric `phase` field.
 """
-    messages = [
-        {"role": "system", "content": system_prompt},
-        {"role": "user", "content": user_content},
-    ]
+    messages = [{"role": "system", "content": system_prompt}, {"role": "user", "content": user_content}]
     response = await call_llm_with_instructor(messages, List[Task], max_tokens_override=config.MAX_TOKENS * 2)
 
     if response:
         log.info(f"Successfully received updated task data for {len(response)} tasks.")
-        # Validation and merging logic (same as before, ensure phase is preserved/updated)
+        # Validation and merging logic (ensure phase is handled correctly)
         original_tasks_map = {t.id: t for t in tasks_to_update}
         final_updated_tasks = []
         processed_ids = set()
 
         for updated_task_model in response:
-            updated_task = Task(**updated_task_model.model_dump()) # Validate
+            try:
+                # Validate incoming data and ensure phase is int/None
+                updated_task = Task(**updated_task_model.model_dump())
+            except Exception as val_err:
+                log.warning(f"Skipping update for task ID {updated_task_model.id} due to validation error: {val_err}")
+                continue
+
             original_task = original_tasks_map.get(updated_task.id)
             if not original_task:
                 log.warning(f"LLM returned update for unknown task ID {updated_task.id}. Skipping.")
@@ -420,9 +412,7 @@ Return the updated task objects for ALL the tasks listed above. Preserve fields 
             updated_task.dependencies = original_task.dependencies
             updated_task.priority = original_task.priority
             updated_task.subtasks = original_task.subtasks
-            # Preserve phase unless LLM explicitly changed it AND it's valid
-            if updated_task.phase is None: updated_task.phase = original_task.phase
-            else: updated_task.phase = str(updated_task.phase) # Ensure string if not None
+            # Phase is handled by Pydantic validator during Task instantiation
 
             final_updated_tasks.append(updated_task)
             processed_ids.add(updated_task.id)

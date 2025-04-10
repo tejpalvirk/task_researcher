@@ -5,7 +5,7 @@ import asyncio
 
 from . import config, utils, ai_services, dependency_manager, ui, models
 from .models import TasksData, Task, Subtask, ComplexityReport, ResearchTopics
-from .utils import log, read_json, write_json, task_exists, find_task_by_id, get_next_task_id, get_next_subtask_id, read_complexity_report, find_task_in_complexity_report, sanitize_filename, sanitize_phase_name, read_file, write_file
+from .utils import log, read_json, write_json, task_exists, find_task_by_id, get_next_task_id, get_next_subtask_id, read_complexity_report, find_task_in_complexity_report, sanitize_filename, sanitize_phase_name, read_file, write_file, format_phase_for_filename
 from rich.prompt import Confirm
 
 # Lazy import STORM stuff
@@ -176,7 +176,7 @@ def generate_task_files(
     tasks_file_path: Path = config.TASKS_FILE_PATH,
     output_dir: Path = config.TASK_FILES_DIR,
 ) -> None:
-    """Generates individual .txt files for each task with phase in filename."""
+    """Generates individual .txt files for each task with phase number in filename.""" # Updated docstring
     log.info(f"Generating task files in directory: {output_dir}")
     tasks_data_dict = read_json(tasks_file_path)
     if not tasks_data_dict:
@@ -198,10 +198,9 @@ def generate_task_files(
     log.info("Validating dependencies before generating files...")
 
     for task in tasks_data.tasks:
-        # Sanitize phase name for filename
-        phase_prefix = sanitize_phase_name(task.phase)
-        file_path = output_dir / f"phase_{phase_prefix}_task_{task.id:03d}.txt"
-        # Pass the validated Pydantic Task model and the full list for context
+        # Use numeric phase for filename
+        phase_prefix = format_phase_for_filename(task.phase) # Use helper
+        file_path = output_dir / f"phase_{phase_prefix}_task_{task.id:03d}.txt" # Updated filename format
         content = ui.format_task_for_file(task, tasks_data.tasks)
         try:
             file_path.write_text(content, encoding='utf-8')
@@ -486,9 +485,9 @@ async def expand_task(
                     storm_research_summary = "\n".join(storm_outputs)
                     ui.console.print("\n✅ [bold green]Research Phase Complete. Combined results.[/bold green]")
                     # Optionally save combined research to a file?
-                    # research_file = config.STORM_OUTPUT_DIR / f"task_{task.id}_research_summary.md"
-                    # write_file(research_file, storm_research_summary)
-                    # ui.console.print(f"  Combined research saved to: {research_file}")
+                    research_file = config.STORM_OUTPUT_DIR / f"task_{task.id}_research_summary.md"
+                    write_file(research_file, storm_research_summary)
+                    ui.console.print(f"  Combined research saved to: {research_file}")
                 else:
                      ui.console.print("\n⚠️ [bold yellow]Research Phase completed with no successful STORM outputs.[/bold yellow]")
 
@@ -506,7 +505,7 @@ async def expand_task(
     spinner = ui.console.status("[bold green]Generating subtasks with AI...", spinner="dots")
     spinner.start()
     try:
-        next_sub_id = get_next_subtask_id(tasks_data.tasks[task_index])
+        next_sub_id = get_next_subtask_id(tasks_data.tasks[task_index].model_dump())
         new_subtasks = await ai_services.generate_subtasks_with_llm(
             tasks_data.tasks[task_index], final_num_subtasks, next_sub_id, combined_context
         )

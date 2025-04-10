@@ -66,7 +66,7 @@ task-researcher complexity-report
 # Expand task 5 normally (using primary LLM)
 task-researcher expand --id 5 --num 4
 
-# Expand task 7 using the STORM research workflow
+# Expand task 7 using the STORM research workflow (will ask for confirmation)
 # Generates questions -> groups topics -> runs STORM -> generates subtasks w/ research)
 # Will show research plan & token estimate, ask for confirmation before running STORM
 task-researcher expand --id 7 --research
@@ -153,7 +153,7 @@ This starts the server using **stdio transport** by default.
 
 * `parse_inputs`: Generates initial tasks from configured spec files.
 * `update_tasks`: Updates tasks from a given ID based on a prompt.
-* `generate_task_files`: Creates individual task_XXX.txt files.
+* `generate_task_files`: Creates individual phase_XX_task_YYY.txt files.
 * `expand_task`: Expands a single task into subtasks (supports research=True for STORM).
 * `expand_all_tasks`: Expands all eligible pending tasks (supports research=True).
 * `analyze_complexity`: Analyzes task complexity and saves a report.
@@ -161,12 +161,14 @@ This starts the server using **stdio transport** by default.
 * `fix_dependencies`: Attempts to automatically fix dependency issues.
 * `research_topic`: Runs STORM to generate a research report on a topic.
 
+(Note: `expand_* --research` via MCP bypasses confirmation).
+
 ### Exposed MCP Resources:
 
 * `tasks://current`: The content of the main tasks.json file.
 * `report://complexity`: The content of the task-complexity-report.json file.
 * `research://{topic_name}`: The content of a generated STORM report for the given topic.
-* `taskfile://{task_id}`: The content of a specific task_XXX.txt file.
+* `taskfile://{task_id_str}`: The content of a specific phase_XX_task_YYY.txt file.
 
 (See `mcp/server.py` for precise tool/resource definitions and parameters).
 
@@ -206,6 +208,7 @@ The structure follows the Pydantic models defined in `task_master_py/models.py`,
     {
       "id": 1,
       "title": "Setup Project Environment",
+      "phase": 1,
       "description": "Initialize project structure, install dependencies, configure linters.",
       "details": "...",
       "status": "pending",
@@ -217,6 +220,7 @@ The structure follows the Pydantic models defined in `task_master_py/models.py`,
     {
       "id": 2,
       "title": "Implement Core Data Models",
+      "phase": 1,
       "description": "Define Pydantic models for tasks and reports.",
       "details": "...",
       "status": "pending",
@@ -230,7 +234,8 @@ The structure follows the Pydantic models defined in `task_master_py/models.py`,
             "description": "...",
             "details": "...",
             "status": "pending",
-            "dependencies": [] // Dependencies relative to sibling subtasks (ints)
+            "dependencies": [], // Dependencies relative to sibling subtasks (ints)
+            "acceptanceCriteria": "Pydantic model passes validation...",
         },
         {
             "id": 2,
@@ -238,7 +243,8 @@ The structure follows the Pydantic models defined in `task_master_py/models.py`,
             "description": "...",
             "details": "...",
             "status": "pending",
-            "dependencies": [1] // Depends on subtask 1
+            "dependencies": [1], // Depends on subtask 1
+            "acceptanceCriteria": "Pydantic model passes validation...",
         }
       ]
     },

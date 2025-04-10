@@ -26,7 +26,7 @@ class Subtask(BaseModel):
 class Task(BaseModel):
     id: int
     title: str = Field(..., description="Brief, descriptive title of the task.")
-    phase: Optional[str] = Field(None, description="The development phase this task belongs to (e.g., 'Setup', 'Backend API', 'UI').") # Added field
+    phase: Optional[int] = Field(None, description="The numeric development phase (e.g., 1, 2, 3) this task belongs to, derived from the plan.") 
     description: Optional[str] = Field(None, description="Concise description of what the task involves.")
     details: Optional[str] = Field(None, description="In-depth implementation instructions.")
     status: Literal["pending", "in-progress", "done", "deferred", "blocked"] = Field("pending", description="Current state of the task.")
@@ -42,6 +42,23 @@ class Task(BaseModel):
          if v is None: return []
          if not isinstance(v, list): raise ValueError("Dependencies must be a list")
          return [str(item) if isinstance(item, str) else int(item) for item in v]
+    
+    @field_validator('phase', mode='before')
+    @classmethod
+    def ensure_phase_is_int_or_none(cls, v):
+        if v is None:
+            return None
+        try:
+            # Allow strings like "1", "Phase 1", etc., extract the number
+            if isinstance(v, str):
+                match = re.search(r'\d+', v)
+                if match:
+                    return int(match.group(0))
+                else:
+                    return None # Cannot extract number
+            return int(v)
+        except (ValueError, TypeError):
+            return None # Return None if conversion fails
 
 class TaskFileMetadata(BaseModel):
     projectName: str = Field(default=config.PROJECT_NAME)
