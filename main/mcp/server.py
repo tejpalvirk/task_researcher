@@ -27,7 +27,7 @@ mcp_server = FastMCP(
 # --- MCP Resources ---
 
 @mcp_server.resource("tasks://current")
-async def get_current_tasks(ctx: Context) -> Dict[str, Any]:
+async def get_current_tasks() -> Dict[str, Any]:
     """Provides the current content of the main tasks JSON file."""
     # Reading small JSON is likely fast enough to be sync within async handler
     tasks_data_dict = utils.read_json(config.TASKS_FILE_PATH)
@@ -44,7 +44,7 @@ async def get_current_tasks(ctx: Context) -> Dict[str, Any]:
 
 
 @mcp_server.resource("report://complexity")
-async def get_complexity_report(ctx: Context) -> Optional[Dict[str, Any]]:
+async def get_complexity_report() -> Optional[Dict[str, Any]]:
     """Provides the content of the task complexity report, if it exists."""
     report_data_dict = utils.read_complexity_report(config.COMPLEXITY_REPORT_PATH)
     if report_data_dict:
@@ -57,7 +57,7 @@ async def get_complexity_report(ctx: Context) -> Optional[Dict[str, Any]]:
     return None
 
 @mcp_server.resource("research://{topic_name}")
-async def get_storm_research(ctx: Context, topic_name: str) -> Optional[str]:
+async def get_storm_research(topic_name: str) -> Optional[str]:
     """Provides the content of a previously generated STORM research report."""
     safe_filename = utils.sanitize_filename(topic_name) + ".md"
     # Check primary location first
@@ -92,7 +92,7 @@ async def get_storm_research(ctx: Context, topic_name: str) -> Optional[str]:
     return content
 
 @mcp_server.resource("taskfile://{task_id_str}") # Renamed arg for clarity
-async def get_task_file(ctx: Context, task_id_str: str) -> Optional[str]:
+async def get_task_file(task_id_str: str) -> Optional[str]:
     """
     Provides the content of a specific generated task file (phase_XX_task_YYY.txt).
     Accepts the task ID as a string (e.g., '5').
@@ -133,8 +133,7 @@ async def get_task_file(ctx: Context, task_id_str: str) -> Optional[str]:
 
 @mcp_server.tool()
 async def parse_inputs(
-    ctx: Context,
-    num_tasks: int = 15,
+        num_tasks: int = 15,
     func_spec_path: Optional[str] = None,
     tech_spec_path: Optional[str] = None,
     plan_path: Optional[str] = None,
@@ -162,8 +161,7 @@ async def parse_inputs(
 
 @mcp_server.tool()
 async def update_tasks(
-    ctx: Context,
-    from_id: int,
+        from_id: int,
     prompt: str,
     research_hint: bool = False
     ) -> str:
@@ -180,7 +178,7 @@ async def update_tasks(
         return f"Error updating tasks: {e}"
 
 @mcp_server.tool()
-async def generate_task_files(ctx: Context) -> str:
+async def generate_task_files() -> str:
     """Generates individual task files (phase_X_task_Y.txt)."""
     utils.log.info(f"MCP Tool: Running generate_task_files")
     try:
@@ -197,8 +195,7 @@ async def generate_task_files(ctx: Context) -> str:
 
 @mcp_server.tool()
 async def expand_task(
-    ctx: Context,
-    task_id: int,
+        task_id: int,
     num_subtasks: Optional[int] = None,
     research: bool = False,
     prompt: Optional[str] = None,
@@ -228,8 +225,7 @@ async def expand_task(
 
 @mcp_server.tool()
 async def expand_all_tasks(
-    ctx: Context,
-    num_subtasks: Optional[int] = None,
+        num_subtasks: Optional[int] = None,
     research: bool = False,
     prompt: Optional[str] = None,
     force: bool = False
@@ -252,8 +248,7 @@ async def expand_all_tasks(
 
 @mcp_server.tool()
 async def analyze_complexity(
-    ctx: Context,
-    research_hint: bool = False,
+        research_hint: bool = False,
     threshold: float = 5.0,
     output_file: Optional[str] = None
     ) -> str:
@@ -275,7 +270,7 @@ async def analyze_complexity(
         return f"Error analyzing complexity: {e}"
 
 @mcp_server.tool()
-async def validate_dependencies(ctx: Context) -> str:
+async def validate_dependencies() -> str:
     """Validates task dependencies for issues like missing refs or cycles."""
     utils.log.info("MCP Tool: Running validate_dependencies")
     try:
@@ -298,7 +293,7 @@ async def validate_dependencies(ctx: Context) -> str:
         return f"Error validating dependencies: {e}"
 
 @mcp_server.tool()
-async def fix_dependencies(ctx: Context) -> str:
+async def fix_dependencies() -> str:
     """Automatically fixes invalid dependencies."""
     utils.log.info("MCP Tool: Running fix_dependencies")
     try:
@@ -328,8 +323,7 @@ async def fix_dependencies(ctx: Context) -> str:
 
 @mcp_server.tool()
 async def research_topic(
-    ctx: Context,
-    topic: str,
+        topic: str,
     output_file: Optional[str] = None,
     search_top_k: int = config.STORM_SEARCH_TOP_K,
     ) -> str:
