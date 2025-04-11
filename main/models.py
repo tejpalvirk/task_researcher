@@ -1,5 +1,6 @@
 from pydantic import BaseModel, Field, field_validator, ConfigDict
 from typing import List, Optional, Union, Literal, Dict, Any
+import re
 
 from . import config # Import config for defaults
 

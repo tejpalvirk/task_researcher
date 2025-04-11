@@ -5,8 +5,10 @@ import asyncio
 
 from . import config, utils, ai_services, dependency_manager, ui, models
 from .models import TasksData, Task, Subtask, ComplexityReport, ResearchTopics
-from .utils import log, read_json, write_json, task_exists, find_task_by_id, get_next_task_id, get_next_subtask_id, read_complexity_report, find_task_in_complexity_report, sanitize_filename, sanitize_phase_name, read_file, write_file, format_phase_for_filename
+from .utils import log, read_json, write_json, task_exists, find_task_by_id, get_next_task_id, get_next_subtask_id, read_complexity_report, find_task_in_complexity_report, sanitize_filename, read_file, write_file, format_phase_for_filename
 from rich.prompt import Confirm
+
+from knowledge_storm import STORMWikiRunner, STORMWikiRunnerArguments, STORMWikiLMConfigs
 
 # Lazy import STORM stuff
 KnowledgeStormRunner = None
@@ -46,7 +48,7 @@ async def parse_inputs(
     func_spec_path: Path = config.FUNCTIONAL_SPEC_PATH,
     tech_spec_path: Path = config.TECHNICAL_SPEC_PATH,
     plan_path: Path = config.PLAN_PATH,
-    research_path: Path = config.DEEP_RESEARCH_PATH,
+    research_path: Path = config.BACKGROUND_PATH,
 ) -> None:
     """Parses input files and generates initial tasks using an LLM."""
     log.info(f"Parsing inputs to generate ~{num_tasks} tasks.")

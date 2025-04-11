@@ -146,7 +146,7 @@ async def parse_inputs(
         f_path = Path(func_spec_path) if func_spec_path else config.FUNCTIONAL_SPEC_PATH
         t_path = Path(tech_spec_path) if tech_spec_path else config.TECHNICAL_SPEC_PATH
         p_path = Path(plan_path) if plan_path else config.PLAN_PATH
-        r_path = Path(research_doc_path) if research_doc_path else config.DEEP_RESEARCH_PATH
+        r_path = Path(research_doc_path) if research_doc_path else config.BACKGROUND_PATH
 
         await task_manager.parse_inputs(
             num_tasks=num_tasks, tasks_file_path=config.TASKS_FILE_PATH,

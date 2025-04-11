@@ -2,6 +2,8 @@ import typer
 from pathlib import Path
 from typing import Optional, List
 import asyncio
+from rich.panel import Panel
+from rich.table import Table
 
 from rich.prompt import Confirm
 
@@ -50,7 +52,7 @@ def parse_inputs_cmd(
     func_spec: Path = typer.Option(config.FUNCTIONAL_SPEC_PATH, help="Path to functional spec file."),
     tech_spec: Path = typer.Option(config.TECHNICAL_SPEC_PATH, help="Path to technical spec file."),
     plan: Path = typer.Option(config.PLAN_PATH, help="Path to high-level plan file (used for task phases)."), # Updated help
-    research_doc: Path = typer.Option(config.DEEP_RESEARCH_PATH, "--research-doc", help="Path to deep research/background file."),
+    research_doc: Path = typer.Option(config.BACKGROUND_PATH, "--research-doc", help="Path to deep research/background file."),
 ):
     """Parses input specs to generate initial tasks, including phases.""" # Updated help
     tasks_file = ctx.obj["TASKS_FILE"]
